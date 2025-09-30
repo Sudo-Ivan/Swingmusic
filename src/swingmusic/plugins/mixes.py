@@ -20,6 +20,8 @@ from swingmusic.utils.dates import get_date_range, get_duration_ago
 from swingmusic.utils.hashing import create_hash
 from swingmusic.utils.mixes import balance_mix
 from swingmusic.utils.stats import get_artists_in_period
+from swingmusic.lib.offline_recommendations import offline_engine
+from swingmusic.config import UserConfig
 
 
 class MixAlreadyExists(Exception):
@@ -69,8 +71,10 @@ class MixesPlugin(Plugin):
     @plugin_method
     def get_track_mix_data(self, tracks: list[Track], with_help: bool = False):
         """
-        Given a list of tracks, creates a mix by fetching data from the
-        Swing Music Cloud recommendation server.
+        Given a list of tracks, creates a mix using either cloud or offline recommendations.
+
+        If offline recommendations are enabled, uses local content-based algorithms.
+        Otherwise, fetches data from the Swing Music Cloud recommendation server.
 
         The server returns a list of weak trackhashes. We use these to fetch
         the matching track data from our library database. Found tracks are
@@ -78,6 +82,55 @@ class MixesPlugin(Plugin):
 
         :param with_help: Whether to include the help flag in the query.
             The flag tells the server to find more data using other tracks from the same album.
+        """
+        config = UserConfig()
+
+        if config.offlineRecommendations:
+            return self._get_offline_track_mix_data(tracks)
+        else:
+            return self._get_cloud_track_mix_data(tracks, with_help)
+
+    def _get_offline_track_mix_data(self, tracks: list[Track]):
+        """
+        Generate mix data using offline recommendation algorithms.
+        """
+        # Get similar tracks, albums, and artists using offline engine
+        similar_track_weakhashes = offline_engine.get_similar_tracks(tracks, limit=self.MIX_TRACKS_LENGTH)
+        similar_album_weakhashes = offline_engine.get_similar_albums(tracks, limit=20)
+        similar_artist_hashes = offline_engine.get_similar_artists(tracks, limit=20)
+
+        # Convert weakhashes to actual tracks
+        trackmatches = TrackStore.get_flat_list()
+        trackmatches = [t for t in trackmatches if t.weakhash in similar_track_weakhashes]
+
+        # Remove duplicates by weakhash, keeping highest bitrate
+        grouped: dict[str, list[Track]] = {}
+        for track in trackmatches:
+            grouped.setdefault(track.weakhash, []).append(track)
+
+        trackmatches = [
+            max(group, key=lambda x: x.bitrate) for group in grouped.values()
+        ]
+
+        # Sort by the order returned by the recommendation engine
+        trackmatches = sorted(trackmatches, key=lambda x: similar_track_weakhashes.index(x.weakhash))
+
+        # If the mix is short, use fallback method with offline data
+        if len(trackmatches) < self.MIN_TRACK_MIX_LENGTH:
+            filler_tracks = self.fallback_create_artist_mix(
+                similar_artists=similar_artist_hashes,
+                similar_albums=similar_album_weakhashes,
+                omit_trackhashes={t.weakhash for t in trackmatches},
+            )
+            trackmatches.extend(filler_tracks)
+
+        # Balance the mix
+        trackmatches = balance_mix(trackmatches)
+        return trackmatches, similar_album_weakhashes, similar_artist_hashes
+
+    def _get_cloud_track_mix_data(self, tracks: list[Track], with_help: bool = False):
+        """
+        Original cloud-based recommendation method.
         """
         queries = [
             {
