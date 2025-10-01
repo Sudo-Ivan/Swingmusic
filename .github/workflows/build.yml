@@ -193,9 +193,10 @@ jobs:
       - name: Checkout into repo
         uses: actions/checkout@v4
 
-      - name: Set lowercase repository owner
+      - name: Set lowercase repository owner and name
         run: |
           echo "GITHUB_REPOSITORY_OWNER_LOWER=$(echo ${{ github.repository_owner }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+          echo "GITHUB_REPOSITORY_NAME_LOWER=$(echo ${{ github.event.repository.name }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
 
       - name: Download artifact
         uses: actions/download-artifact@v4
@@ -220,7 +221,7 @@ jobs:
         with:
           # list of Docker images to use as base name for tags
           images: |
-            ghcr.io/${{ env.GITHUB_REPOSITORY_OWNER_LOWER }}/${{ github.event.repository.name }}
+            ghcr.io/${{ env.GITHUB_REPOSITORY_OWNER_LOWER }}/${{ env.GITHUB_REPOSITORY_NAME_LOWER }}
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -228,7 +229,7 @@ jobs:
           context: .
           platforms: linux/amd64, linux/arm64 #,linux/arm
           push: true
-          tags: ghcr.io/${{ env.GITHUB_REPOSITORY_OWNER_LOWER }}/${{ github.event.repository.name }}:${{format('{0}', github.ref_name)}}, ghcr.io/${{ env.GITHUB_REPOSITORY_OWNER_LOWER }}/${{ github.event.repository.name }}:latest
+          tags: ghcr.io/${{ env.GITHUB_REPOSITORY_OWNER_LOWER }}/${{ env.GITHUB_REPOSITORY_NAME_LOWER }}:${{format('{0}', github.ref_name)}}, ghcr.io/${{ env.GITHUB_REPOSITORY_OWNER_LOWER }}/${{ env.GITHUB_REPOSITORY_NAME_LOWER }}:latest
           labels: org.opencontainers.image.title=Docker
 
   build-pyinstaller:
