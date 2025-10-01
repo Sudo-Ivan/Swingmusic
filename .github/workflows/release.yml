@@ -74,6 +74,46 @@ jobs:
           compression-level: 0
           name: "client"
 
+  build-wheels:
+    name: Build wheels
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout swingmusic
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Download client artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: client
+          path: client
+
+      - name: Compress client and copy to src/swingmusic/client.zip
+        run: |
+          zip -r client.zip client
+          rm -r client
+          cp client.zip src/swingmusic/client.zip
+
+      - uses: actions/setup-python@v2
+        with:
+          python-version: "3.11"
+
+      - name: Create git tag
+        run: |
+          git tag v${{ github.event.inputs.tag }}
+
+      - name: Build wheels
+        run: pip wheel . -w wheelhouse --no-deps
+
+      - uses: actions/upload-artifact@v4
+        with:
+          # name: cibw-wheels-${{ matrix.os }}-${{ strategy.job-index }}
+          path: ./wheelhouse/*.whl
+          compression-level: 0
+          name: "wheels"
+
   build:
     strategy:
       matrix:
@@ -243,7 +283,7 @@ jobs:
     name: Create New Release
     runs-on: ubuntu-latest
     # if: false
-    needs: [build-client, build]
+    needs: [build-client, build-wheels, build]
     permissions: write-all
     steps:
       - name: Checkout into repo
@@ -257,13 +297,19 @@ jobs:
         run: |
           zip -r client.zip client
           rm -r client
+      - name: Download wheel artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: wheels
+          path: wheels
+          merge-multiple: true
       - name: Download all binaries
         uses: actions/download-artifact@v4
       - name: Upload binaries to GitHub Release
         uses: ncipollo/release-action@v1
         with:
           allowUpdates: true
-          artifacts: "client.zip, ./linux-amd64/swingmusic_linux_amd64, ./win-amd64/swingmusic.exe, ./macos-amd64/swingmusic_macos_amd64, ./macos-arm64/swingmusic_macos_arm64"
+          artifacts: "client.zip,wheels/*, ./linux-amd64/swingmusic_linux_amd64, ./win-amd64/swingmusic.exe, ./macos-amd64/swingmusic_macos_amd64, ./macos-arm64/swingmusic_macos_arm64"
           # artifacts: "./linux/swingmusic_linux_amd64, ./win32/swingmusic.exe, ./arm64/swingmusic_linux_arm64"
           token: ${{ secrets.GITHUB_TOKEN }}
           tag: ${{ format('v{0}',inputs.tag) }}
@@ -276,7 +322,7 @@ jobs:
   docker:
     name: Build and push Docker image
     runs-on: ubuntu-latest
-    needs: [build-client]
+    needs: [build-client, build-wheels]
     permissions: write-all
     if: inputs.build_docker == 'true'
     # if: false
@@ -289,6 +335,13 @@ jobs:
         with:
           name: client
           path: client
+
+      - name: Download wheel artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: wheels
+          path: wheels
+          merge-multiple: true
 
       - name: Set lowercase repository owner and name
         run: |
