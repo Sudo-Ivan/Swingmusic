@@ -41,6 +41,39 @@ on:
           - false
 
 jobs:
+  build-client:
+    runs-on: ubuntu-latest
+    name: Build client
+    steps:
+      - name: Clone client
+        uses: actions/checkout@v3
+        with:
+          repository: "swingmx/webclient"
+          path: swingmusic-client
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v2
+        with:
+          node-version: 20.x
+
+      - name: Install yarn
+        run: |
+          npm install -g yarn
+
+      - name: Install dependencies & Build client
+        run: |
+          cd swingmusic-client
+          yarn install
+          yarn build --outDir ../client
+          cd ..
+
+      - name: Upload client
+        uses: actions/upload-artifact@v4
+        with:
+          path: "client/"
+          compression-level: 0
+          name: "client"
+
   build:
     strategy:
       matrix:
@@ -210,18 +243,27 @@ jobs:
     name: Create New Release
     runs-on: ubuntu-latest
     # if: false
-    needs: [build]
+    needs: [build-client, build]
     permissions: write-all
     steps:
       - name: Checkout into repo
         uses: actions/checkout@v3
+      - name: Download client artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: client
+          path: client
+      - name: Compress client
+        run: |
+          zip -r client.zip client
+          rm -r client
       - name: Download all binaries
         uses: actions/download-artifact@v4
       - name: Upload binaries to GitHub Release
         uses: ncipollo/release-action@v1
         with:
           allowUpdates: true
-          artifacts: "./linux-amd64/swingmusic_linux_amd64, ./win-amd64/swingmusic.exe, ./macos-amd64/swingmusic_macos_amd64, ./macos-arm64/swingmusic_macos_arm64"
+          artifacts: "client.zip, ./linux-amd64/swingmusic_linux_amd64, ./win-amd64/swingmusic.exe, ./macos-amd64/swingmusic_macos_amd64, ./macos-arm64/swingmusic_macos_arm64"
           # artifacts: "./linux/swingmusic_linux_amd64, ./win32/swingmusic.exe, ./arm64/swingmusic_linux_arm64"
           token: ${{ secrets.GITHUB_TOKEN }}
           tag: ${{ format('v{0}',inputs.tag) }}
@@ -234,12 +276,19 @@ jobs:
   docker:
     name: Build and push Docker image
     runs-on: ubuntu-latest
+    needs: [build-client]
     permissions: write-all
     if: inputs.build_docker == 'true'
     # if: false
     steps:
       - name: Checkout into repo
         uses: actions/checkout@v3
+
+      - name: Download client artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: client
+          path: client
 
       - name: Set lowercase repository owner and name
         run: |
