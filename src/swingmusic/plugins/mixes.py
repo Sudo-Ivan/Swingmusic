@@ -1,6 +1,5 @@
 from gettext import ngettext
 from io import BytesIO
-import json
 import random
 import time
 from urllib.parse import quote
@@ -71,24 +70,15 @@ class MixesPlugin(Plugin):
     @plugin_method
     def get_track_mix_data(self, tracks: list[Track], with_help: bool = False):
         """
-        Given a list of tracks, creates a mix using either cloud or offline recommendations.
+        Given a list of tracks, creates a mix using offline recommendations.
 
-        If offline recommendations are enabled, uses local content-based algorithms.
-        Otherwise, fetches data from the Swing Music Cloud recommendation server.
-
-        The server returns a list of weak trackhashes. We use these to fetch
-        the matching track data from our library database. Found tracks are
-        then balanced and returned as the final mix tracklist.
+        Uses local content-based algorithms to generate music recommendations
+        without external API calls.
 
         :param with_help: Whether to include the help flag in the query.
             The flag tells the server to find more data using other tracks from the same album.
         """
-        config = UserConfig()
-
-        if config.offlineRecommendations:
-            return self._get_offline_track_mix_data(tracks)
-        else:
-            return self._get_cloud_track_mix_data(tracks, with_help)
+        return self._get_offline_track_mix_data(tracks)
 
     def _get_offline_track_mix_data(self, tracks: list[Track]):
         """
@@ -115,81 +105,10 @@ class MixesPlugin(Plugin):
         # Sort by the order returned by the recommendation engine
         trackmatches = sorted(trackmatches, key=lambda x: similar_track_weakhashes.index(x.weakhash))
 
-        # If the mix is short, use fallback method with offline data
-        if len(trackmatches) < self.MIN_TRACK_MIX_LENGTH:
-            filler_tracks = self.fallback_create_artist_mix(
-                similar_artists=similar_artist_hashes,
-                similar_albums=similar_album_weakhashes,
-                omit_trackhashes={t.weakhash for t in trackmatches},
-            )
-            trackmatches.extend(filler_tracks)
-
         # Balance the mix
         trackmatches = balance_mix(trackmatches)
         return trackmatches, similar_album_weakhashes, similar_artist_hashes
 
-    def _get_cloud_track_mix_data(self, tracks: list[Track], with_help: bool = False):
-        """
-        Original cloud-based recommendation method.
-        """
-        queries = [
-            {
-                "title": track.title,
-                "artists": [a["name"] for a in track.artists],
-                "album": track.og_album,
-                "with_help": with_help,
-            }
-            for track in tracks
-        ]
-
-        try:
-            response = requests.post(f"{self.server}/radio", json=queries, timeout=30)
-        except (requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout):
-            print("Failed to connect to recommendation server")
-            return [], [], []
-
-        try:
-            results = response.json()
-        except json.JSONDecodeError:
-            print("Failed to decode JSON response from recommendation server")
-            return [], [], []
-
-        trackhashes: list[str] = results.get("tracks", [])
-
-        trackmatches = TrackStore.get_flat_list()
-        trackmatches = [t for t in trackmatches if t.weakhash in trackhashes]
-
-        # filter out duplicates of the same weakhash
-        # group by weakhash and pick the one with the highest bitrate
-        grouped: dict[str, list[Track]] = {}
-        for track in trackmatches:
-            grouped.setdefault(track.weakhash, []).append(track)
-
-        trackmatches = [
-            max(group, key=lambda x: x.bitrate) for group in grouped.values()
-        ]
-
-        # sort by trackhash order
-        trackmatches = sorted(trackmatches, key=lambda x: trackhashes.index(x.weakhash))
-
-        # if the mix is short, try to fill it up with tracks
-        # from album and artist data from the cloud!
-
-        # Create as many filler tracks as possible
-        # Then the mix length will be controlled in the Mix model
-        # if len(trackmatches) < self.TRACK_MIX_LENGTH:
-        if True:
-            filler_tracks = self.fallback_create_artist_mix(
-                similar_artists=results.get("artists", []),
-                similar_albums=results.get("albums", []),
-                omit_trackhashes={t.weakhash for t in trackmatches},
-                # limit=self.TRACK_MIX_LENGTH - len(trackmatches),
-            )
-            trackmatches.extend(filler_tracks)
-
-        # try to balance the mix
-        trackmatches = balance_mix(trackmatches)
-        return trackmatches, results.get("albums", []), results.get("artists", [])
 
     # @plugin_method
     # def get_artist_mix(self, artisthash: str):
