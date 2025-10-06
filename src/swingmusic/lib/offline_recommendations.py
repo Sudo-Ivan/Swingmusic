@@ -174,18 +174,23 @@ class OfflineRecommendationEngine:
             return 1.0
 
         # Get artist hashes for diversity calculation
-        track = self.track_store.trackhashmap.get(item_hash)
-        if not track:
+        track_group = self.track_store.trackhashmap.get(item_hash)
+        if not track_group:
             return 0.5
 
+        # Get the best track from the group
+        track = track_group.get_best() if hasattr(track_group, 'get_best') else track_group
         item_artists = set(track.artisthashes)
 
         # Check how many recent recommendations share artists
         overlapping_artists = 0
         for recent_hash in recent_items:
-            recent_track = self.track_store.trackhashmap.get(recent_hash)
-            if recent_track and item_artists.intersection(recent_track.artisthashes):
-                overlapping_artists += 1
+            recent_track_group = self.track_store.trackhashmap.get(recent_hash)
+            if recent_track_group:
+                # Get the best track from the group
+                recent_track = recent_track_group.get_best() if hasattr(recent_track_group, 'get_best') else recent_track_group
+                if item_artists.intersection(recent_track.artisthashes):
+                    overlapping_artists += 1
 
         # Diversity score decreases with more overlaps
         diversity_penalty = min(overlapping_artists * 0.2, 0.8)
@@ -376,10 +381,12 @@ class OfflineRecommendationEngine:
             rec.score.diversity_score = self._calculate_diversity_score(rec.item_hash, recent_items)
 
             # Add temporal boost (recently popular tracks get slight boost)
-            track = self.track_store.trackhashmap.get(rec.item_hash)
-            if track:
-                # Simple recency boost based on when track was added/modified
-                rec.score.temporal_boost = min(track.playcount / 1000, 0.5)  # Cap at 0.5
+            track_group = self.track_store.trackhashmap.get(rec.item_hash)
+            if track_group:
+                # Get the best track from the group for playcount
+                best_track = track_group.get_best() if hasattr(track_group, 'get_best') else track_group
+                if hasattr(best_track, 'playcount'):
+                    rec.score.temporal_boost = min(best_track.playcount / 1000, 0.5)  # Cap at 0.5
 
         # Sort by final weighted score
         all_recommendations.sort(key=lambda x: x.score.final_score(), reverse=True)
@@ -390,8 +397,14 @@ class OfflineRecommendationEngine:
         seen_artists = set()
 
         for rec in all_recommendations:
-            track = self.track_store.trackhashmap.get(rec.item_hash)
-            if not track or track.weakhash in seed_weakhashes:
+            track_group = self.track_store.trackhashmap.get(rec.item_hash)
+            if not track_group:
+                continue
+
+            # Get the best track from the group
+            track = track_group.get_best() if hasattr(track_group, 'get_best') else track_group
+
+            if track.weakhash in seed_weakhashes:
                 continue
 
             # Diversity check: avoid too many tracks from same artist
@@ -399,7 +412,7 @@ class OfflineRecommendationEngine:
             if track_artists.intersection(seen_artists) and len(result) >= limit // 2:
                 continue  # Skip if we've seen this artist and have enough results
 
-            result.append(track.weakhash)
+                result.append(track.weakhash)
             seen_artists.update(track_artists)
 
             # Track recent recommendations for diversity
@@ -668,9 +681,12 @@ class OfflineRecommendationEngine:
 
         for rec in recommendations:
             rec.score.diversity_score = self._calculate_diversity_score(rec.item_hash, recent_items)
-            track = self.track_store.trackhashmap.get(rec.item_hash)
-            if track:
-                rec.score.temporal_boost = min(track.playcount / 1000, 0.5)
+            track_group = self.track_store.trackhashmap.get(rec.item_hash)
+            if track_group:
+                # Get the best track from the group for playcount
+                best_track = track_group.get_best() if hasattr(track_group, 'get_best') else track_group
+                if hasattr(best_track, 'playcount'):
+                    rec.score.temporal_boost = min(best_track.playcount / 1000, 0.5)
 
         # Sort by final score
         recommendations.sort(key=lambda x: x.score.final_score(), reverse=True)
