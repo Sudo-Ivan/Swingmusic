@@ -265,9 +265,15 @@ class OfflineRecommendationEngine:
                         )
 
                         if score > 0:
-                            recommendations.append(RecommendationResult(
+                            similarity_score = SimilarityScore(
                                 item_hash=track_hash,
                                 score=score,
+                                reasons=["collaborative_filtering"],
+                                confidence=0.7
+                            )
+                            recommendations.append(RecommendationResult(
+                                item_hash=track_hash,
+                                score=similarity_score,
                                 reasons=["collaborative_filtering"],
                                 confidence=0.7,
                                 item_type="track"
@@ -343,9 +349,15 @@ class OfflineRecommendationEngine:
 
         # Convert to RecommendationResult objects
         for track_hash, score_data in content_scores.items():
-            all_recommendations.append(RecommendationResult(
+            similarity_score = SimilarityScore(
                 item_hash=track_hash,
                 score=score_data['score'],
+                reasons=score_data['reasons'],
+                confidence=score_data['confidence']
+            )
+            all_recommendations.append(RecommendationResult(
+                item_hash=track_hash,
+                score=similarity_score,
                 reasons=score_data['reasons'],
                 confidence=score_data['confidence'],
                 item_type="track"
