@@ -44,6 +44,30 @@ class SimilarityScore:
             self.temporal_boost * weights['temporal']
         )
 
+    def __lt__(self, other):
+        """Less than comparison for heap operations."""
+        if not isinstance(other, SimilarityScore):
+            return NotImplemented
+        return self.final_score() < other.final_score()
+
+    def __le__(self, other):
+        """Less than or equal comparison."""
+        if not isinstance(other, SimilarityScore):
+            return NotImplemented
+        return self.final_score() <= other.final_score()
+
+    def __gt__(self, other):
+        """Greater than comparison."""
+        if not isinstance(other, SimilarityScore):
+            return NotImplemented
+        return self.final_score() > other.final_score()
+
+    def __ge__(self, other):
+        """Greater than or equal comparison."""
+        if not isinstance(other, SimilarityScore):
+            return NotImplemented
+        return self.final_score() >= other.final_score()
+
 
 @dataclass
 class RecommendationResult:
@@ -680,6 +704,7 @@ class OfflineRecommendationEngine:
 
         # Use heap to efficiently track top N scores
         min_heap = []
+        tie_breaker = 0  # For handling identical scores
 
         # Get all tracks for comparison
         all_tracks = self.track_store.get_flat_list()
@@ -691,16 +716,20 @@ class OfflineRecommendationEngine:
             score = self._calculate_track_similarity(track, other_track)
             if score.score > 0:
                 score.confidence = self._calculate_confidence(score)
+                final_score = score.final_score()
 
-                # Use heap to maintain top N scores
+                # Use heap to maintain top N scores (min-heap for largest N)
+                heap_item = (final_score, tie_breaker, score)
+                tie_breaker += 1
+
                 if len(min_heap) < limit:
-                    heapq.heappush(min_heap, (score.final_score(), score))
-                elif score.final_score() > min_heap[0][0]:
+                    heapq.heappush(min_heap, heap_item)
+                elif final_score > min_heap[0][0]:
                     heapq.heappop(min_heap)
-                    heapq.heappush(min_heap, (score.final_score(), score))
+                    heapq.heappush(min_heap, heap_item)
 
-        # Extract results from heap
-        sorted_scores = [score for _, score in sorted(min_heap, key=lambda x: x[0], reverse=True)]
+        # Extract results from heap, sorted by score descending
+        sorted_scores = [score for _, _, score in sorted(min_heap, key=lambda x: (-x[0], x[1]))]
         self._set_cache(self._track_similarity_cache, cache_key, sorted_scores)
 
         return sorted_scores
