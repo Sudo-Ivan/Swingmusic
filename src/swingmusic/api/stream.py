@@ -185,30 +185,43 @@ def transcode_and_stream(trackhash: str, filepath: str, bitrate: str, container:
     chunk_size = 1024 * 512  # 0.5MB
     file_size = os.path.getsize(filepath)
 
-    def generate():
-        # Poll for the output file
-        while (
-            not os.path.exists(temp_filename)
-            or os.path.getsize(temp_filename) < chunk_size
-        ):
-            print(f"Waiting for transcoding to complete... filename: {temp_filename}")
-            time.sleep(0.1)  # Wait for 100ms before checking again
+    def generate_transcoded():
+        retry_count = 0
+        max_wait_retries = 100
 
-        with open(temp_filename, "rb") as file:
-            file.seek(0)
-            return file.read(chunk_size)
+        while retry_count < max_wait_retries:
+            if os.path.exists(temp_filename) and os.path.getsize(temp_filename) >= chunk_size:
+                break
+            time.sleep(0.1)
+            retry_count += 1
+
+        if retry_count >= max_wait_retries:
+            print(f"Transcoding timeout for: {temp_filename}")
+            return
+
+        try:
+            with open(temp_filename, "rb") as file:
+                chunk = file.read(chunk_size)
+                if chunk:
+                    yield chunk
+        except (ConnectionError, BrokenPipeError, OSError) as e:
+            print(f"Client disconnected during transcoding: {e}")
+            return
 
     audio_type = guess_mime_type(temp_filename)
     response = Response(
-        generate(),
+        generate_transcoded(),
         206,
         mimetype=audio_type,
         content_type=audio_type,
         direct_passthrough=True,
     )
-    response.headers.add("Content-Range", f"bytes {0}-{chunk_size}/{file_size}")
-    response.headers.add("Accept-Ranges", "bytes")
-    response.headers.add("X-Transcoded-Bitrate", bitrate)
+    
+    response.headers["Content-Range"] = f"bytes 0-{chunk_size}/{file_size}"
+    response.headers["Accept-Ranges"] = "bytes"
+    response.headers["Cache-Control"] = "no-cache"
+    response.headers["X-Transcoded-Bitrate"] = bitrate
+    
     return response
 
 
@@ -243,58 +256,65 @@ def send_file_as_chunks(filepath: str) -> Response:
         with open(filepath, "rb") as file:
             file.seek(start)
             remaining_bytes = end - start + 1
-
             retry_count = 0
-            max_retries = 10  # 5 * 100ms = 500ms total wait time
+            max_retries = 20
 
-            while remaining_bytes > 0 or retry_count < max_retries:
-                if retry_count == max_retries:
-                    print("💚 sending final chunk! ...")
-
-                    pos = file.tell()
-                    chunk = file.read(os.path.getsize(filepath) - pos)
-
-                    return chunk, pos, True
-
+            while remaining_bytes > 0 and retry_count < max_retries:
                 if remaining_bytes < chunk_size:
-                    time.sleep(0.25)
+                    time.sleep(0.1)
                     retry_count += 1
-                    remaining_bytes = os.path.getsize(filepath) - file.tell()
+                    current_file_size = os.path.getsize(filepath)
+                    remaining_bytes = max(0, current_file_size - file.tell())
                     continue
 
-                chunk = file.read(min(chunk_size, remaining_bytes))
-                if chunk:
-                    remaining_bytes -= len(chunk)
-                    return chunk, file.tell(), False
-                else:
-                    # If no data is read, wait for 100ms before retrying
-                    time.sleep(0.25)
-                    retry_count += 1
+                try:
+                    chunk = file.read(min(chunk_size, remaining_bytes))
+                    if chunk:
+                        remaining_bytes -= len(chunk)
+                        retry_count = 0
+                        yield chunk
+                    else:
+                        time.sleep(0.1)
+                        retry_count += 1
+                        current_file_size = os.path.getsize(filepath)
+                        remaining_bytes = max(0, current_file_size - file.tell())
+                except (ConnectionError, BrokenPipeError, OSError):
+                    return
 
-                    # update remaining bytes
-                    remaining_bytes = os.path.getsize(filepath) - file.tell()
-                    print(f"▶ Remaining bytes: {remaining_bytes}")
+            if remaining_bytes > 0:
+                try:
+                    final_chunk = file.read(remaining_bytes)
+                    if final_chunk:
+                        yield final_chunk
+                except (ConnectionError, BrokenPipeError, OSError):
+                    return
 
-            return None, 0, True
-
-    data, position, is_final = generate_chunks()
+    def generate_response():
+        try:
+            for chunk in generate_chunks():
+                yield chunk
+        except (ConnectionError, BrokenPipeError, OSError):
+            return
 
     audio_type = guess_mime_type(filepath)
+
+    content_length = end - start + 1
+    total_size = os.path.getsize(filepath)
+
     response = Response(
-        response=data,
-        status=206,  # Partial Content status code
+        response=generate_response(),
+        status=206,
         mimetype=audio_type,
         content_type=audio_type,
         direct_passthrough=True,
     )
 
-    bytes_to_add = chunk_size if not is_final else 0
-    response.headers.add(
-        "Content-Range",
-        f"bytes {start}-{position}/{os.path.getsize(filepath) + bytes_to_add}",
-    )
-    response.headers.add("Access-Control-Expose-Headers", "Content-Range")
-    response.headers.add("Accept-Ranges", "bytes")
+    response.headers["Content-Range"] = f"bytes {start}-{end}/{total_size}"
+    response.headers["Content-Length"] = str(content_length)
+    response.headers["Access-Control-Expose-Headers"] = "Content-Range"
+    response.headers["Accept-Ranges"] = "bytes"
+    response.headers["Cache-Control"] = "no-cache"
+    
     return response
 
 
