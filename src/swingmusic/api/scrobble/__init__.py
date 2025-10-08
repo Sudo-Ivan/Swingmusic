@@ -36,6 +36,7 @@ from swingmusic.utils.stats import (
     get_albums_in_period,
     get_artists_in_period,
     get_tracks_in_period,
+    get_track_group_stats,
 )
 
 bp_tag = Tag(name="Logger", description="Log item plays")
