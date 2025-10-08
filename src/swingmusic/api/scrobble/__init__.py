@@ -61,6 +61,34 @@ def format_date(start: float, end: float):
     return f"{pendulum.from_timestamp(start).format('MMM D, YYYY')} - {pendulum.from_timestamp(end).format('MMM D, YYYY')}"
 
 
+def calculate_listening_streak(scrobbles):
+    """
+    Calculate the current listening streak in days.
+    """
+    if not scrobbles:
+        return 0
+
+    dates = sorted(set(pendulum.from_timestamp(s.timestamp).date() for s in scrobbles), reverse=True)
+    if not dates:
+        return 0
+
+    streak = 1
+    today = pendulum.today().date()
+
+    # Check if listened today or yesterday (for current streak)
+    if dates[0] != today and dates[0] != today.subtract(days=1):
+        return 0
+
+    # Count consecutive days
+    for i in range(1, len(dates)):
+        if dates[i-1] - dates[i] == pendulum.duration(days=1):
+            streak += 1
+        else:
+            break
+
+    return streak
+
+
 @api.post("/track/log")
 def log_track(body: LogTrackBody):
     """
@@ -368,11 +396,136 @@ def get_stats():
         f"{fav_count} {'new' if period != 'alltime' else ''} favorite{'' if fav_count == 1 else 's'}",
     )
 
+    all_scrobbles = list(ScrobbleTable.get_all_in_period(start_time, end_time))
+
+    # Calculate average daily listening time
+    days_in_period = (end_time - start_time) / (24 * 60 * 60)
+    avg_daily = playduration / max(days_in_period, 1)
+    avg_daily_listening = StatItem(
+        "avg_daily",
+        "daily average",
+        f"{seconds_to_time_string(int(avg_daily))} per day",
+    )
+
+    # Calculate listening streak
+    streak_days = calculate_listening_streak(all_scrobbles)
+    listening_streak = StatItem(
+        "streak",
+        "listening streak",
+        f"{streak_days} day{'' if streak_days == 1 else 's'}",
+    )
+
+    # Find most listened hour
+    hour_counts = {}
+    for scrobble in all_scrobbles:
+        hour = pendulum.from_timestamp(scrobble.timestamp).hour
+        hour_counts[hour] = hour_counts.get(hour, 0) + 1
+
+    if hour_counts:
+        most_listened_hour = max(hour_counts, key=hour_counts.get)
+        hour_name = pendulum.parse(f"2023-01-01T{most_listened_hour:02d}:00").format("h A")
+        most_active_hour = StatItem(
+            "peak_hour",
+            "peak listening hour",
+            f"{hour_name} ({hour_counts[most_listened_hour]} plays)",
+        )
+    else:
+        most_active_hour = StatItem(
+            "peak_hour",
+            "peak listening hour",
+            "—",
+        )
+
+    # Find most listened day of week
+    day_counts = {}
+    for scrobble in all_scrobbles:
+        day = pendulum.from_timestamp(scrobble.timestamp).day_of_week
+        day_counts[day] = day_counts.get(day, 0) + 1
+
+    day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    if day_counts:
+        most_listened_day = max(day_counts, key=day_counts.get)
+        most_active_day = StatItem(
+            "peak_day",
+            "favorite day",
+            f"{day_names[most_listened_day - 1]} ({day_counts[most_listened_day]} plays)",
+        )
+    else:
+        most_active_day = StatItem(
+            "peak_day",
+            "favorite day",
+            "—",
+        )
+
+    # Calculate genre diversity
+    genre_counts = {}
+    total_genre_tracks = 0
+    for scrobble in all_scrobbles:
+        track = TrackStore.trackhashmap.get(scrobble.trackhash)
+        if track:
+            track_obj = track.get_best() if hasattr(track, 'get_best') else track
+            if hasattr(track_obj, 'genrehashes') and track_obj.genrehashes:
+                for genre_hash in track_obj.genrehashes:
+                    genre_counts[genre_hash] = genre_counts.get(genre_hash, 0) + 1
+                    total_genre_tracks += 1
+
+    if genre_counts:
+        unique_genres = len(genre_counts)
+        top_genre_count = max(genre_counts.values())
+        diversity_score = min(100, int((unique_genres / max(1, total_genre_tracks / unique_genres)) * 100))
+        genre_diversity = StatItem(
+            "diversity",
+            "genre diversity",
+            f"{unique_genres} genres explored",
+        )
+    else:
+        genre_diversity = StatItem(
+            "diversity",
+            "genre diversity",
+            "—",
+        )
+
+    # Calculate discovery rate (new artists discovered)
+    new_artists_count = calculate_new_artists(
+        get_artists_in_period(start_time, end_time), start_time
+    )
+    discovery_rate = StatItem(
+        "discovery",
+        "new artists discovered",
+        f"{new_artists_count} new artist{'' if new_artists_count == 1 else 's'}",
+    )
+
+    # Calculate listening consistency
+    if days_in_period > 0:
+        active_days = len(set(
+            pendulum.from_timestamp(s.timestamp).date()
+            for s in all_scrobbles
+        ))
+        consistency_percentage = int((active_days / days_in_period) * 100)
+        listening_consistency = StatItem(
+            "consistency",
+            "listening consistency",
+            f"{consistency_percentage}% of days active",
+        )
+    else:
+        listening_consistency = StatItem(
+            "consistency",
+            "listening consistency",
+            "—",
+        )
+
     return {
         "stats": [
             top_track,
             playcount,
             playduration,
+            avg_daily_listening,
+            listening_streak,
+            most_active_hour,
+            most_active_day,
+            genre_diversity,
+            discovery_rate,
+            listening_consistency,
             favorites,
             total_tracks,
         ],
