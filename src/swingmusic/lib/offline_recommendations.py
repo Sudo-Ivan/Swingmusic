@@ -473,12 +473,12 @@ class OfflineRecommendationEngine:
         sorted_tracks = sorted(all_scores.items(), key=lambda x: x[1]['score'], reverse=True)
         return dict(sorted_tracks[:limit])
 
-    def get_similar_albums(self, seed_tracks: List[Track], limit: int = 20) -> List[str]:
+    def get_similar_albums(self, seed_tracks: List[Any], limit: int = 20) -> List[str]:
         """
         Get similar albums based on seed tracks.
 
         Args:
-            seed_tracks: List of seed tracks to base recommendations on
+            seed_tracks: List of seed tracks/groups to base recommendations on (Track or TrackGroup objects)
             limit: Maximum number of similar albums to return
 
         Returns:
@@ -487,9 +487,12 @@ class OfflineRecommendationEngine:
         if not seed_tracks:
             return []
 
+        # Extract individual Track objects from TrackGroups if needed
+        actual_tracks = self._extract_tracks(seed_tracks)
+
         # Extract unique album weakhashes from seed tracks
         seed_album_weakhashes = set()
-        for track in seed_tracks:
+        for track in actual_tracks:
             album = self.album_store.albummap.get(track.albumhash)
             if album:
                 seed_album_weakhashes.add(album.album.weakhash)
@@ -497,7 +500,7 @@ class OfflineRecommendationEngine:
         # Find similar albums based on artists and genres
         all_scores: Dict[str, float] = defaultdict(float)
 
-        for seed_track in seed_tracks:
+        for seed_track in actual_tracks:
             similar_albums = self._get_similar_albums_for_track(seed_track, limit=50)
 
             for score in similar_albums:
@@ -514,12 +517,12 @@ class OfflineRecommendationEngine:
 
         return result
 
-    def get_similar_artists(self, seed_tracks: List[Track], limit: int = 20) -> List[str]:
+    def get_similar_artists(self, seed_tracks: List[Any], limit: int = 20) -> List[str]:
         """
         Get similar artists based on seed tracks with enhanced algorithms.
 
         Args:
-            seed_tracks: List of seed tracks to base recommendations on
+            seed_tracks: List of seed tracks/groups to base recommendations on (Track or TrackGroup objects)
             limit: Maximum number of similar artists to return
 
         Returns:
@@ -528,16 +531,19 @@ class OfflineRecommendationEngine:
         if not seed_tracks:
             return []
 
+        # Extract individual Track objects from TrackGroups if needed
+        actual_tracks = self._extract_tracks(seed_tracks)
+
         # Extract unique artist hashes from seed tracks
         seed_artist_hashes = set()
-        for track in seed_tracks:
+        for track in actual_tracks:
             for artisthash in track.artisthashes:
                 seed_artist_hashes.add(artisthash)
 
         # Get similar artists using stored LastFM data and content similarity
         all_scores: Dict[str, float] = defaultdict(float)
 
-        for seed_track in seed_tracks:
+        for seed_track in actual_tracks:
             for artisthash in seed_track.artisthashes:
                 similar_artists = self._get_similar_artists_for_artist(artisthash, limit=50)
 

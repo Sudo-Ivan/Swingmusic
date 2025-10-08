@@ -85,7 +85,9 @@ class MixesPlugin(Plugin):
         Generate mix data using offline recommendation algorithms.
         """
         # Get similar tracks, albums, and artists using offline engine
-        similar_track_weakhashes = offline_engine.get_similar_tracks(tracks, limit=self.MIX_TRACKS_LENGTH)
+        # Request more tracks than MIX_TRACKS_LENGTH to allow for track mix creation
+        # Increased limit to ensure we have enough tracks after balancing and filtering
+        similar_track_weakhashes = offline_engine.get_similar_tracks(tracks, limit=self.MIX_TRACKS_LENGTH + 50)
         similar_album_weakhashes = offline_engine.get_similar_albums(tracks, limit=20)
         similar_artist_hashes = offline_engine.get_similar_artists(tracks, limit=20)
 
