@@ -412,7 +412,7 @@ class OfflineRecommendationEngine:
             if track_artists.intersection(seen_artists) and len(result) >= limit // 2:
                 continue  # Skip if we've seen this artist and have enough results
 
-                result.append(track.weakhash)
+            result.append(track.weakhash)
             seen_artists.update(track_artists)
 
             # Track recent recommendations for diversity

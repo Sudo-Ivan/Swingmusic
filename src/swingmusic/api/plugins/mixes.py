@@ -7,6 +7,8 @@ from swingmusic.db.userdata import MixTable
 from swingmusic.plugins.mixes import MixesPlugin
 from swingmusic.store.homepage import HomepageStore
 from swingmusic.store.tracks import TrackStore
+from swingmusic.lib.recipes.artistmixes import ArtistMixes
+from swingmusic.lib.recipes.because import BecauseYouListened
 
 
 bp_tag = Tag(name="Mixes Plugin", description="Mixes plugin hehe")
@@ -107,3 +109,17 @@ def save_mix(body: SaveMixRequest):
     if mix:
         mix.saved = state
     return {"msg": "Mixes saved"}, 200
+
+
+@api.post("/generate")
+def generate_mixes():
+    """
+    Manually trigger mix generation (artist mixes + recommendations).
+    This runs the same process as the 12-hour cron job.
+    """
+    try:
+        ArtistMixes()
+        BecauseYouListened()
+        return {"msg": "Mixes generated successfully"}, 200
+    except Exception as e:
+        return {"msg": f"Failed to generate mixes: {str(e)}"}, 500
