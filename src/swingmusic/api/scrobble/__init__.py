@@ -362,18 +362,18 @@ def get_stats():
         + ngettext("track", "tracks", count),
     )
 
-    tracks, playcount, playduration = get_tracks_in_period(start_time, end_time)
+    tracks, playcount_raw, playduration_raw = get_tracks_in_period(start_time, end_time)
 
     playcount = StatItem(
         "streams",
         said_period,
-        f"{playcount} track {ngettext('play', 'plays', playcount)}",
+        f"{playcount_raw} track {ngettext('play', 'plays', playcount_raw)}",
     )
 
     playduration = StatItem(
         "playtime",
         said_period,
-        f"{seconds_to_time_string(playduration)} listened",
+        f"{seconds_to_time_string(playduration_raw)} listened",
     )
 
     tracks = sorted(tracks, key=lambda t: t.playduration, reverse=True)
@@ -401,7 +401,7 @@ def get_stats():
 
     # Calculate average daily listening time
     days_in_period = (end_time - start_time) / (24 * 60 * 60)
-    avg_daily = playduration / max(days_in_period, 1)
+    avg_daily = playduration_raw / max(days_in_period, 1)
     avg_daily_listening = StatItem(
         "avg_daily",
         "daily average",
