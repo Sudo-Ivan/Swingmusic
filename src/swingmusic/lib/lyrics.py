@@ -325,7 +325,7 @@ def check_lyrics_file(filepath: str, trackhash: str):
     """
 
     lyrics_file = Path(filepath).with_suffix(".lrc")
-    if lyrics_file.exists:
+    if lyrics_file.exists():
         return True
 
     entry = TrackStore.trackhashmap.get(trackhash, None)

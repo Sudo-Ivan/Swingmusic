@@ -127,16 +127,27 @@ def save_similar_artists(artist: Artist):
     Downloads and saves similar artists to the database.
     """
     if SimilarArtistTable.exists(artist.artisthash):
+        log.debug(f"Similar artists already exist for '{artist.name}' ({artist.artisthash})")
         return
 
+    log.debug(f"Fetching similar artists for '{artist.name}' ({artist.artisthash})")
     artists = fetch_similar_artists(artist.name)
 
     # INFO: Nones mean there was a connection error
     if artists is None:
+        log.debug(f"Failed to fetch similar artists for '{artist.name}' due to connection error")
         return
 
-    artist_ = SimilarArtist(artist.artisthash, artists)
-    SimilarArtistTable.insert_one(asdict(artist_))
+    if not artists:
+        log.debug(f"No similar artists found for '{artist.name}'")
+        return
+
+    try:
+        artist_ = SimilarArtist(artist.artisthash, artists)
+        SimilarArtistTable.insert_one(asdict(artist_))
+        log.debug(f"Saved {len(artists)} similar artists for '{artist.name}'")
+    except Exception as e:
+        log.error(f"Failed to save similar artists for '{artist.name}': {e}")
 
 
 class FetchSimilarArtistsLastFM:
@@ -170,7 +181,8 @@ class FetchSimilarArtistsLastFM:
                 )
 
                 list(results)
+                log.info(f"Successfully processed similar artists for {len(artists)} artists")
             # any exception that can be raised by the pool
             except Exception as e:
-                log.warning(e)
+                log.error(f"Error during similar artists fetching: {e}", exc_info=True)
                 return
