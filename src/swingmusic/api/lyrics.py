@@ -67,11 +67,17 @@ def check_lyrics(body: SendLyricsBody):
     """
     Checks if lyrics file or tag exists for a track
     """
-    result = send_lyrics(body)
+    try:
+        result = send_lyrics(body)
 
-    if "error" in result:
+        if isinstance(result, tuple):
+            return {"exists": True}, 200
+        else:
+            return {"exists": False}
+    except Exception as e:
+        import logging
+        log = logging.getLogger(__name__)
+        log.error(f"Error in check_lyrics for trackhash {body.trackhash}: {e}", exc_info=True)
         return {"exists": False}
-    else:
-        return {"exists": True}, 200
 
 
