@@ -403,7 +403,7 @@ def get_stats():
             f"{fav_count} {'new' if period != 'alltime' else ''} favorite{'' if fav_count == 1 else 's'}",
         )
 
-        all_scrobbles = list(ScrobbleTable.get_all_in_period(start_time, end_time))
+        all_scrobbles = list(ScrobbleTable.get_all_in_period(start_time, end_time, userid=None))
 
         # Calculate average daily listening time
         days_in_period = (end_time - start_time) / (24 * 60 * 60)
