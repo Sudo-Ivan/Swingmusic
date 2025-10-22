@@ -379,15 +379,18 @@ def get_stats():
     tracks = sorted(tracks, key=lambda t: t.playduration, reverse=True)
 
     # Find the top track from the last 7 days
+    top_track_title = "—"
+    top_track_image = None
+
+    if len(tracks) > 0 and tracks[0].artists:
+        top_track_title = tracks[0].title + " - " + tracks[0].artists[0].get("name", "Unknown Artist")
+        top_track_image = tracks[0].image
+
     top_track = StatItem(
         "toptrack",
         f"Top track {said_period}",
-        (
-            tracks[0].title + " - " + tracks[0].artists[0]["name"]
-            if len(tracks) > 0
-            else "—"
-        ),
-        (tracks[0].image if len(tracks) > 0 else None),
+        top_track_title,
+        top_track_image,
     )
 
     fav_count = FavoritesTable.count_favs_in_period(start_time, end_time)
